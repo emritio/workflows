@@ -1,0 +1,41 @@
+name: Install, Test and Build
+
+on:
+  workflow_call:
+    secrets:
+      PACKAGES_ACCESS_TOKEN:
+        required: true
+
+jobs:
+  test:
+    name: Install, Test and Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v2
+      - name: Set NodeJS
+        uses: actions/setup-node@v2
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: 'NPM: Add Config and Authorization'
+        run: |
+          rm .npmrc
+          echo "@emritio:registry=https://npm.pkg.github.com/" > .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${PAT}" >> .npmrc
+        env:
+          PAT: ${{ secrets.PACKAGES_ACCESS_TOKEN }}
+      - name: Install dependencies
+        run: npm i
+      - name: Test
+        run: npm run test
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: 'Upload Artifact'
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          path: build
+          retention-days: 1

@@ -1,0 +1,48 @@
+name: Notify Slack
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        required: true
+        type: string
+      service:
+        required: true
+        type: string
+      status:
+        required: true
+        type: string
+    secrets:
+      SLACK_NOTIFICATION_CI_RUNS:
+        required: true
+
+jobs:
+  send_slack_notification:
+    name: Slack notification
+    runs-on: ubuntu-20.04
+    env:
+      ENV: ${{inputs.env}}
+      SERVICE: ${{inputs.service}}
+      SLACK_NOTIFICATION_CI_RUNS: ${{secrets.SLACK_NOTIFICATION_CI_RUNS}}
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v2
+      - uses: actions/github-script@v6
+        id: set-message
+        with:
+          script: |
+            const commits = ${{ toJSON(github.event.commits) }};
+            return commits.map(c => c.message).join('\n');
+          result-encoding: string
+      - name: Send success slack notification
+        if: inputs.status == 'success'
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment succeeded for these commits: \n ${{steps.set-message.outputs.result}}.\n ECS tasks should be updated during next a few minutes.\"}" \
+          $SLACK_NOTIFICATION_CI_RUNS
+      - name: Send failure slack notification
+        if: inputs.status == 'failure'
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment FAILED for these commits: \n ${{steps.set-message.outputs.result}}.\"}" \
+          $SLACK_NOTIFICATION_CI_RUNS
