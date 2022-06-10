@@ -20,7 +20,7 @@ jobs:
           cache: npm
       - name: 'NPM: Add Config and Authorization'
         run: |
-          rm .npmrc
+          rm -f .npmrc
           echo "@emritio:registry=https://npm.pkg.github.com/" > .npmrc
           echo "//npm.pkg.github.com/:_authToken=${PAT}" >> .npmrc
         env:
