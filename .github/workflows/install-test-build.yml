@@ -33,9 +33,3 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
-      - name: 'Upload Artifact'
-        uses: actions/upload-artifact@v3
-        with:
-          name: build
-          path: build
-          retention-days: 1
