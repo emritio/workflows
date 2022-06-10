@@ -1,0 +1,124 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      ENV:
+        required: true
+        type: string
+      SERVICE:
+        required: true
+        type: string
+      INFRA_REPO:
+        required: true
+        type: string
+      INFRA_REPO_BRANCH:
+        required: true
+        type: string
+        default: master
+      BUILD_NUMBER:
+        required: true
+        type: string
+      TF_IMAGE_FIELD:
+        required: true
+        type: string
+      TF_VAR_project_name:
+        required: true
+        type: string
+      TF_CLI_ARGS_apply:
+        required: true
+        type: string
+    secrets:
+      SLACK_NOTIFICATION_CI_RUNS:
+        required: true
+      INFRA_ACCESS_TOKEN:
+        required: true
+      ACCESS_TOKEN:
+        required: true
+      ACCOUNT_ID:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_DEFAULT_REGION:
+        required: true
+      SECRETS_S3_BUCKET:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Staging
+    runs-on: ubuntu-20.04
+    container:
+      image: docker/compose:1.29.2
+    env:
+      ENV: ${{ inputs.ENV }}
+      SERVICE: ${{ inputs.SERVICE }}
+      INFRA_REPO: ${{ inputs.INFRA_REPO }}
+      INFRA_REPO_BRANCH: ${{ inputs.INFRA_REPO_BRANCH }}
+      BUILD_NUMBER: ${{ inputs.BUILD_NUMBER }}
+      TF_IMAGE_FIELD: ${{ inputs.TF_IMAGE_FIELD }}
+      TF_VAR_project_name: ${{ inputs.TF_VAR_project_name }}
+      TF_CLI_ARGS_apply: ${{ inputs.TF_CLI_ARGS_apply }}
+      INFRA_ACCESS_TOKEN: ${{ secrets.INFRA_ACCESS_TOKEN }}
+      ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{secrets.AWS_DEFAULT_REGION}}
+      SECRETS_S3_BUCKET: ${{ secrets.SECRETS_S3_BUCKET }}
+      SLACK_NOTIFICATION_CI_RUNS: ${{ secrets.SLACK_NOTIFICATION_CI_RUNS }}
+      REPOSITORY_URL: ${{secrets.ACCOUNT_ID}}.dkr.ecr.${{secrets.AWS_DEFAULT_REGION}}.amazonaws.com
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v2
+      - name: Configuration
+        env:
+          AWS_CLI_VERSION: 1.18.101
+          DOCKER_VERSION: 20.10.3-r0
+          ECR_CREDENTIAL_HELPER_VERSION: 0.5.0
+        run: |
+          apk update 
+          apk add --no-cache curl bash coreutils skopeo jq py3-pip rsync git openssh openssh-client tzdata 
+          ln -s /usr/share/zoneinfo/UTC /etc/localtime 
+          apk add --no-cache docker==${DOCKER_VERSION} 
+          pip3 install awscli==${AWS_CLI_VERSION} 
+
+          curl -Lo /usr/local/bin/ecs-cli https://amazon-ecs-cli.s3.amazonaws.com/ecs-cli-linux-amd64-latest 
+          chmod +x /usr/local/bin/ecs-cli
+
+          curl -Lo /bin/docker-credential-ecr-login https://amazon-ecr-credential-helper-releases.s3.us-east-2.amazonaws.com/${ECR_CREDENTIAL_HELPER_VERSION}/linux-amd64/docker-credential-ecr-login 
+          chmod +x /bin/docker-credential-ecr-login
+
+          curl -o /tmp/terraform.zip https://releases.hashicorp.com/terraform/1.1.7/terraform_1.1.7_linux_amd64.zip 
+          unzip /tmp/terraform.zip -d /usr/bin
+      - name: Start deployment slack notification
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment has begun.\n \"}" \
+          $SLACK_NOTIFICATION_CI_RUNS
+      - name: Set DOCKER_TAG
+        run: |
+          echo "DOCKER_TAG=${REPOSITORY_URL}/emrit-${ENV}-${SERVICE}:${BUILD_NUMBER}" >> $GITHUB_ENV
+      - name: Build image
+        run: docker build --compress -t ${DOCKER_TAG} --build-arg git_pat=${ACCESS_TOKEN} -f Dockerfile .
+      - name: docker login
+        run: docker login --username AWS --password "$(aws ecr get-login-password)" ${REPOSITORY_URL}
+      - name: push image
+        run: docker push ${DOCKER_TAG}
+      - name: Deploy to ECS
+        run: |
+          git clone --single-branch --branch ${INFRA_REPO_BRANCH} "https://${INFRA_ACCESS_TOKEN}@${INFRA_REPO}" infra
+          cd infra/env/${ENV}
+          aws s3 cp s3://${SECRETS_S3_BUCKET}/ . --recursive --exclude "*" --include "*.secret.auto.tfvars"
+
+          TF_IMAGES_FILE=${TF_IMAGES_FILE:-"images.secret.auto.tfvars"}
+          sed -i /${TF_IMAGE_FIELD}/d "${TF_IMAGES_FILE}"
+          echo "${TF_IMAGE_FIELD} = \"${BUILD_NUMBER}\"" >> "${TF_IMAGES_FILE}"
+
+          export TF_CLI_ARGS_init=${TF_CLI_ARGS_init:-"-backend-config=backend.auto.tfvars"}
+          terraform init
+          TF_OPTIONS="-auto-approve ${TF_OPTIONS}"
+
+          terraform apply ${TF_OPTIONS}
+          aws s3 cp . s3://${SECRETS_S3_BUCKET}/ --recursive --exclude "*" --include "*.secret.auto.tfvars"
