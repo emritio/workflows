@@ -27,22 +27,27 @@ jobs:
     steps:
       - name: Clone repository
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Get previous tag
+        id: previoustag
+        uses: "WyriHaximus/github-action-get-previous-tag@v1"
       - uses: actions/github-script@v6
         id: set-message
         with:
           script: |
             const commits = ${{ toJSON(github.event.commits) }};
-            return commits.map(c => c.message).join('\n');
+            return commits ? commits.map(c => c.message).join('\n') : 'Action was triggered by workflow dispatch';
           result-encoding: string
       - name: Send success slack notification
         if: inputs.status == 'success'
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment succeeded for these commits: \n ${{steps.set-message.outputs.result}}.\n ECS tasks should be updated during next a few minutes.\"}" \
+          --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment succeeded for release ${{ steps.previoustag.outputs.tag }}, with these commits included: \n ${{steps.set-message.outputs.result}}.\n ECS tasks should be updated during next a few minutes.\"}" \
           $SLACK_NOTIFICATION_CI_RUNS
       - name: Send failure slack notification
         if: inputs.status == 'failure'
         run: |
           curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment FAILED for these commits: \n ${{steps.set-message.outputs.result}}.\"}" \
+          --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment FAILED for  release ${{ steps.previoustag.outputs.tag }}, with these commits included: \n ${{steps.set-message.outputs.result}}.\"}" \
           $SLACK_NOTIFICATION_CI_RUNS
