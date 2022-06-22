@@ -87,17 +87,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           semantic_version: 19
-          branches: | 
-            [
-              "prod",
-              {
-                name: "staging", 
-                prerelease: true
-              }
-            ]
-          extra_plugins: | 
-            @semantic-release/github 
-            @semantic-release/changelog"
       - name: Get previous tag
         id: previoustag
         uses: "WyriHaximus/github-action-get-previous-tag@v1"
