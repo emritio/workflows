@@ -1,9 +1,6 @@
 name: Deploy
 
 on:
-  push:
-    branches:
-      - staging
   workflow_call:
     inputs:
       ENV:
@@ -74,7 +71,8 @@ jobs:
       - name: Set NodeJS
         uses: actions/setup-node@v2
         with:
-          node-version: 14
+          node-version-file: .nvmrc
+          cache: npm
       - name: 'NPM: Add Config and Authorization'
         run: |
           rm -f .npmrc
@@ -82,21 +80,21 @@ jobs:
           echo "//npm.pkg.github.com/:_authToken=${PAT}" >> .npmrc
         env:
           PAT: ${{ secrets.PACKAGES_ACCESS_TOKEN }}
-      - run: git config --global --add safe.directory /__w/semantic-test/semantic-test
+      - run: git config --global --add safe.directory /__w/${PWD##*/}/${PWD##*/}
       - name: Semantic Release
         uses: cycjimmy/semantic-release-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           semantic_version: 19
-#      - name: semantic-release
-#        run: npx semantic-release
-#        env:
-#          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Get previous tag
         id: previoustag
         uses: "WyriHaximus/github-action-get-previous-tag@v1"
+      - name: Checkout tag
+        env:
+          VERSION: ${{ steps.previoustag.outputs.tag }}
+        run: |
+          git checkout tags/${VERSION}
       - name: Configuration
         env:
           AWS_CLI_VERSION: 1.18.101
@@ -123,8 +121,10 @@ jobs:
           --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment has begun.\n \"}" \
           $SLACK_NOTIFICATION_CI_RUNS
       - name: Set DOCKER_TAG
+        env:
+          VERSION: ${{ steps.previoustag.outputs.tag }}
         run: |
-          echo "DOCKER_TAG=${REPOSITORY_URL}/emrit-${ENV}-${SERVICE}:${steps.previoustag.outputs.tag:1}" >> $GITHUB_ENV
+          echo "DOCKER_TAG=${REPOSITORY_URL}/emrit-${ENV}-${SERVICE}:${VERSION}" >> $GITHUB_ENV
       - name: Build image
         run: docker build --compress -t ${DOCKER_TAG} --build-arg git_pat=${ACCESS_TOKEN} -f Dockerfile .
       - name: docker login
@@ -132,6 +132,8 @@ jobs:
       - name: push image
         run: docker push ${DOCKER_TAG}
       - name: Deploy to ECS
+        env:
+          VERSION: ${{ steps.previoustag.outputs.tag }}
         run: |
           git clone --single-branch --branch ${INFRA_REPO_BRANCH} "https://${INFRA_ACCESS_TOKEN}@${INFRA_REPO}" infra
           cd infra/env/${ENV}
@@ -139,7 +141,7 @@ jobs:
 
           TF_IMAGES_FILE=${TF_IMAGES_FILE:-"images.secret.auto.tfvars"}
           sed -i /${TF_IMAGE_FIELD}/d "${TF_IMAGES_FILE}"
-          echo "${TF_IMAGE_FIELD} = \"${steps.previoustag.outputs.tag:1}\"" >> "${TF_IMAGES_FILE}"
+          echo "${TF_IMAGE_FIELD} = \"${VERSION}\"" >> "${TF_IMAGES_FILE}"
 
           export TF_CLI_ARGS_init=${TF_CLI_ARGS_init:-"-backend-config=backend.auto.tfvars"}
           terraform init
