@@ -91,7 +91,8 @@ jobs:
           rm -rf node_modules
           npm ci
           npm run build
-          npm prune --production
+          rm -rf node_modules
+          npm ci --only=production --ignore-scripts
       - name: Zip code
         run: |
           zip -r event_handler_lambda.zip *
