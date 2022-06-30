@@ -50,25 +50,25 @@ jobs:
           echo "//npm.pkg.github.com/:_authToken=${PAT}" >> .npmrc
         env:
           PAT: ${{ secrets.ACCESS_TOKEN }}
-      # - name: Add git safe directory
-      #   run: git config --global --add safe.directory /__w/${PWD##*/}/${PWD##*/}
-      # - name: Semantic Release
-      #   uses: cycjimmy/semantic-release-action@v3
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   with:
-      #     semantic_version: 19
-      # - name: Get previous tag
-      #   id: previoustag
-      #   uses: 'WyriHaximus/github-action-get-previous-tag@v1'
-      # - name: Set TAG_TO_DEPLOY
-      #   env:
-      #     VERSION: ${{ steps.previoustag.outputs.tag }}
-      #   run: |
-      #     echo "TAG_TO_DEPLOY=${VERSION}" >> $GITHUB_ENV
-      # - name: Checkout tag
-      #   run: |
-      #     git checkout tags/${TAG_TO_DEPLOY}
+      - name: Add git safe directory
+        run: git config --global --add safe.directory /__w/${PWD##*/}/${PWD##*/}
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          semantic_version: 19
+      - name: Get previous tag
+        id: previoustag
+        uses: 'WyriHaximus/github-action-get-previous-tag@v1'
+      - name: Set TAG_TO_DEPLOY
+        env:
+          VERSION: ${{ steps.previoustag.outputs.tag }}
+        run: |
+          echo "TAG_TO_DEPLOY=${VERSION}" >> $GITHUB_ENV
+      - name: Checkout tag
+        run: |
+          git checkout tags/${TAG_TO_DEPLOY}
       - name: Configuration
         env:
           AWS_CLI_VERSION: 1.18.101
