@@ -17,7 +17,6 @@ jobs:
         uses: actions/setup-node@v2
         with:
           node-version-file: .nvmrc
-          cache: npm
       - name: 'NPM: Add Config and Authorization'
         run: |
           rm -f .npmrc
