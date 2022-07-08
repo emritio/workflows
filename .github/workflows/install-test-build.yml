@@ -5,6 +5,8 @@ on:
     secrets:
       PACKAGES_ACCESS_TOKEN:
         required: true
+      IGNORE_SCRIPTS:
+        required: false
 
 jobs:
   test:
@@ -17,7 +19,6 @@ jobs:
         uses: actions/setup-node@v2
         with:
           node-version-file: .nvmrc
-          cache: npm
       - name: 'NPM: Add Config and Authorization'
         run: |
           rm -f .npmrc
@@ -26,7 +27,10 @@ jobs:
         env:
           PAT: ${{ secrets.PACKAGES_ACCESS_TOKEN }}
       - name: Install dependencies
-        run: npm i
+        run: npm ci --ignore-scripts ${IGNORE_SCRIPTS}
+        env:
+          IGNORE_SCRIPTS: ${{ secrets.IGNORE_SCRIPTS }}
+          NODE_ENV: development
       - name: Test
         run: npm run test
       - name: Lint
