@@ -1,0 +1,102 @@
+name: Deploy lambdas
+
+on:
+  workflow_call:
+    inputs:
+      ENV:
+        required: true
+        type: string
+      SERVICE:
+        required: true
+        type: string
+    secrets:
+      SLACK_NOTIFICATION_CI_RUNS:
+        required: true
+      ACCESS_TOKEN:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_DEFAULT_REGION:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Staging Lambdas
+    runs-on: ubuntu-latest
+    container:
+      image: timbru31/node-alpine-git
+    env:
+      ENV: ${{ inputs.ENV }}
+      SERVICE: ${{ inputs.SERVICE }}
+      ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{secrets.AWS_DEFAULT_REGION}}
+      SLACK_NOTIFICATION_CI_RUNS: ${{ secrets.SLACK_NOTIFICATION_CI_RUNS }}
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v2
+      - name: Set NodeJS
+        uses: actions/setup-node@v2
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: 'NPM: Add Config and Authorization'
+        run: |
+          rm -f .npmrc
+          echo "@emritio:registry=https://npm.pkg.github.com/" > .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${PAT}" >> .npmrc
+        env:
+          PAT: ${{ secrets.ACCESS_TOKEN }}
+#      - name: Add git safe directory
+#        run: git config --global --add safe.directory /__w/${PWD##*/}/${PWD##*/}
+#      - name: Semantic Release
+#        uses: cycjimmy/semantic-release-action@v3
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        with:
+#          semantic_version: 19
+#      - name: Get previous tag
+#        id: previoustag
+#        uses: 'WyriHaximus/github-action-get-previous-tag@v1'
+#      - name: Set TAG_TO_DEPLOY
+#        env:
+#          VERSION: ${{ steps.previoustag.outputs.tag }}
+#        run: |
+#          echo "TAG_TO_DEPLOY=${VERSION}" >> $GITHUB_ENV
+#      - name: Checkout tag
+#        run: |
+#          git checkout tags/${TAG_TO_DEPLOY}
+      - name: Configuration
+        env:
+          AWS_CLI_VERSION: 1.18.101
+          DOCKER_VERSION: 20.10.11-r1
+        run: |
+          apk update
+          apk add --no-cache curl bash coreutils py3-pip git zip 
+          ln -s /usr/share/zoneinfo/UTC /etc/localtime 
+          apk add --no-cache docker==${DOCKER_VERSION}
+          pip3 install awscli==${AWS_CLI_VERSION}
+      - name: Start deployment slack notification
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"The $SERVICE service(s) deployment on $ENV environment has begun.\n \"}" \
+          $SLACK_NOTIFICATION_CI_RUNS
+      - name: Build project
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_ACCESS_TOKEN }}
+        run: |
+          rm -rf node_modules
+          npm ci
+          npm run build
+          rm -rf node_modules
+          npm ci --only=production --ignore-scripts
+      - name: Zip code
+        run: |
+          zip -r event_handler_lambda.zip *
+      - name: Update event handler lambda
+        run: |
+          aws lambda update-function-code --function-name emrit-$ENV-$SERVICE --zip-file fileb://event_handler_lambda.zip --publish
+          aws lambda wait function-updated --function-name emrit-$ENV-$SERVICE
